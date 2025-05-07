@@ -1,1 +1,2434 @@
 * copy these codes :D
+
+I'm making a simple Flight Booking System in pure java with microsoft MySQL studio,
+here is what I've done so far:
+
+-- MySQL Schema for Flight Booking System
+
+-- Create database
+CREATE DATABASE IF NOT EXISTS flight_booking_system;
+USE flight_booking_system;
+
+-- Passengers table
+CREATE TABLE Passengers (
+    passenger_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    gender CHAR(1) CHECK (gender IN ('M', 'F', 'O')),
+    passport_number VARCHAR(20) UNIQUE,
+    nationality VARCHAR(50),
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    address VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Airports table
+CREATE TABLE Airports (
+    airport_id INT AUTO_INCREMENT PRIMARY KEY,
+    airport_code VARCHAR(3) UNIQUE NOT NULL,
+    airport_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL,
+    country VARCHAR(50) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Airlines table
+CREATE TABLE Airlines (
+    airline_id INT AUTO_INCREMENT PRIMARY KEY,
+    airline_code VARCHAR(3) UNIQUE NOT NULL,
+    airline_name VARCHAR(100) NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Aircraft table
+CREATE TABLE Aircraft (
+    aircraft_id INT AUTO_INCREMENT PRIMARY KEY,
+    aircraft_code VARCHAR(10) NOT NULL,
+    model VARCHAR(50) NOT NULL,
+    total_seats INT NOT NULL,
+    airline_id INT,
+    FOREIGN KEY (airline_id) REFERENCES Airlines(airline_id)
+);
+
+-- Flights table
+CREATE TABLE Flights (
+    flight_id INT AUTO_INCREMENT PRIMARY KEY,
+    flight_number VARCHAR(10) NOT NULL,
+    airline_id INT NOT NULL,
+    aircraft_id INT NOT NULL,
+    departure_airport_id INT NOT NULL,
+    arrival_airport_id INT NOT NULL,
+    departure_time DATETIME NOT NULL,
+    arrival_time DATETIME NOT NULL,
+    base_price DECIMAL(10, 2) NOT NULL,
+    status ENUM('Scheduled', 'Delayed', 'Cancelled', 'Completed') DEFAULT 'Scheduled',
+    FOREIGN KEY (airline_id) REFERENCES Airlines(airline_id),
+    FOREIGN KEY (aircraft_id) REFERENCES Aircraft(aircraft_id),
+    FOREIGN KEY (departure_airport_id) REFERENCES Airports(airport_id),
+    FOREIGN KEY (arrival_airport_id) REFERENCES Airports(airport_id),
+    CHECK (departure_airport_id != arrival_airport_id),
+    CHECK (arrival_time > departure_time)
+);
+
+-- Travel Classes table
+CREATE TABLE TravelClasses (
+    class_id INT AUTO_INCREMENT PRIMARY KEY,
+    class_name VARCHAR(20) NOT NULL,
+    price_multiplier DECIMAL(3, 2) DEFAULT 1.00
+);
+
+-- Insert default travel classes
+INSERT INTO TravelClasses (class_name, price_multiplier) VALUES 
+    ('Economy', 1.00),
+    ('Premium Economy', 1.30),
+    ('Business', 2.50),
+    ('First', 4.00);
+
+-- Seat Configurations table
+CREATE TABLE SeatConfigurations (
+    config_id INT AUTO_INCREMENT PRIMARY KEY,
+    aircraft_id INT NOT NULL,
+    class_id INT NOT NULL,
+    total_seats INT NOT NULL,
+    FOREIGN KEY (aircraft_id) REFERENCES Aircraft(aircraft_id),
+    FOREIGN KEY (class_id) REFERENCES TravelClasses(class_id)
+);
+
+-- Bookings table
+CREATE TABLE Bookings (
+    booking_id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_reference VARCHAR(10) UNIQUE NOT NULL,
+    passenger_id INT NOT NULL,
+    flight_id INT NOT NULL,
+    class_id INT NOT NULL,
+    seat_number VARCHAR(5),
+    booking_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    booking_status ENUM('Reserved', 'Confirmed', 'Cancelled', 'Checked-in', 'Completed') DEFAULT 'Reserved',
+    total_amount DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (passenger_id) REFERENCES Passengers(passenger_id),
+    FOREIGN KEY (flight_id) REFERENCES Flights(flight_id),
+    FOREIGN KEY (class_id) REFERENCES TravelClasses(class_id)
+);
+
+-- Transactions table
+CREATE TABLE Transactions (
+    transaction_id INT AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    payment_method ENUM('Credit Card', 'Debit Card', 'PayPal', 'Bank Transfer') NOT NULL,
+    transaction_status ENUM('Pending', 'Completed', 'Failed', 'Refunded') DEFAULT 'Pending',
+    transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reference_number VARCHAR(50) UNIQUE,
+    FOREIGN KEY (booking_id) REFERENCES Bookings(booking_id)
+);
+
+-- Users table for system access
+CREATE TABLE Users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role ENUM('Admin', 'Staff', 'Customer') NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    last_login TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for better performance
+CREATE INDEX idx_flights_departure ON Flights(departure_time);
+CREATE INDEX idx_flights_airports ON Flights(departure_airport_id, arrival_airport_id);
+CREATE INDEX idx_bookings_flight ON Bookings(flight_id);
+CREATE INDEX idx_bookings_passenger ON Bookings(passenger_id);
+CREATE INDEX idx_transactions_booking ON Transactions(booking_id);
+
+package com.flightbooking.model;
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * Passenger entity class
+ */
+public class Passenger {
+    private int passengerId;
+    private String firstName;
+    private String lastName;
+    private LocalDate dateOfBirth;
+    private char gender;
+    private String passportNumber;
+    private String nationality;
+    private String email;
+    private String phoneNumber;
+    private String address;
+    private Timestamp createdAt;
+    private Timestamp updatedAt;
+    
+    // Constructor
+    public Passenger() {}
+    
+    public Passenger(String firstName, String lastName, LocalDate dateOfBirth, 
+                    char gender, String passportNumber, String nationality, 
+                    String email, String phoneNumber, String address) {
+        this.firstName = firstName;
+        this.lastName = lastName;
+        this.dateOfBirth = dateOfBirth;
+        this.gender = gender;
+        this.passportNumber = passportNumber;
+        this.nationality = nationality;
+        this.email = email;
+        this.phoneNumber = phoneNumber;
+        this.address = address;
+    }
+    
+    // Getters and setters
+    public int getPassengerId() {
+        return passengerId;
+    }
+
+    public void setPassengerId(int passengerId) {
+        this.passengerId = passengerId;
+    }
+
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = lastName;
+    }
+    
+    public String getFullName() {
+        return firstName + " " + lastName;
+    }
+
+    public LocalDate getDateOfBirth() {
+        return dateOfBirth;
+    }
+
+    public void setDateOfBirth(LocalDate dateOfBirth) {
+        this.dateOfBirth = dateOfBirth;
+    }
+
+    public char getGender() {
+        return gender;
+    }
+
+    public void setGender(char gender) {
+        this.gender = gender;
+    }
+
+    public String getPassportNumber() {
+        return passportNumber;
+    }
+
+    public void setPassportNumber(String passportNumber) {
+        this.passportNumber = passportNumber;
+    }
+
+    public String getNationality() {
+        return nationality;
+    }
+
+    public void setNationality(String nationality) {
+        this.nationality = nationality;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPhoneNumber() {
+        return phoneNumber;
+    }
+
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
+    }
+
+    public String getAddress() {
+        return address;
+    }
+
+    public void setAddress(String address) {
+        this.address = address;
+    }
+
+    public Timestamp getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Timestamp createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Timestamp getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Timestamp updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+    
+    @Override
+    public String toString() {
+        return "Passenger{" +
+                "id=" + passengerId +
+                ", name='" + firstName + " " + lastName + '\'' +
+                ", email='" + email + '\'' +
+                ", passport='" + passportNumber + '\'' +
+                '}';
+    }
+}
+
+/**
+ * Airport entity class
+ */
+public class Airport {
+    private int airportId;
+    private String airportCode;
+    private String airportName;
+    private String city;
+    private String country;
+    private boolean isActive;
+    
+    // Constructor
+    public Airport() {}
+    
+    public Airport(String airportCode, String airportName, String city, String country) {
+        this.airportCode = airportCode;
+        this.airportName = airportName;
+        this.city = city;
+        this.country = country;
+        this.isActive = true;
+    }
+    
+    // Getters and setters
+    public int getAirportId() {
+        return airportId;
+    }
+
+    public void setAirportId(int airportId) {
+        this.airportId = airportId;
+    }
+
+    public String getAirportCode() {
+        return airportCode;
+    }
+
+    public void setAirportCode(String airportCode) {
+        this.airportCode = airportCode;
+    }
+
+    public String getAirportName() {
+        return airportName;
+    }
+
+    public void setAirportName(String airportName) {
+        this.airportName = airportName;
+    }
+
+    public String getCity() {
+        return city;
+    }
+
+    public void setCity(String city) {
+        this.city = city;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        isActive = active;
+    }
+    
+    @Override
+    public String toString() {
+        return airportCode + " - " + airportName + " (" + city + ", " + country + ")";
+    }
+}
+
+/**
+ * Airline entity class
+ */
+public class Airline {
+    private int airlineId;
+    private String airlineCode;
+    private String airlineName;
+    private boolean isActive;
+    
+    // Constructor
+    public Airline() {}
+    
+    public Airline(String airlineCode, String airlineName) {
+        this.airlineCode = airlineCode;
+        this.airlineName = airlineName;
+        this.isActive = true;
+    }
+    
+    // Getters and setters
+    public int getAirlineId() {
+        return airlineId;
+    }
+
+    public void setAirlineId(int airlineId) {
+        this.airlineId = airlineId;
+    }
+
+    public String getAirlineCode() {
+        return airlineCode;
+    }
+
+    public void setAirlineCode(String airlineCode) {
+        this.airlineCode = airlineCode;
+    }
+
+    public String getAirlineName() {
+        return airlineName;
+    }
+
+    public void setAirlineName(String airlineName) {
+        this.airlineName = airlineName;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        isActive = active;
+    }
+    
+    @Override
+    public String toString() {
+        return airlineCode + " - " + airlineName;
+    }
+}
+
+/**
+ * Aircraft entity class
+ */
+public class Aircraft {
+    private int aircraftId;
+    private String aircraftCode;
+    private String model;
+    private int totalSeats;
+    private int airlineId;
+    
+    // Constructor
+    public Aircraft() {}
+    
+    public Aircraft(String aircraftCode, String model, int totalSeats, int airlineId) {
+        this.aircraftCode = aircraftCode;
+        this.model = model;
+        this.totalSeats = totalSeats;
+        this.airlineId = airlineId;
+    }
+    
+    // Getters and setters
+    public int getAircraftId() {
+        return aircraftId;
+    }
+
+    public void setAircraftId(int aircraftId) {
+        this.aircraftId = aircraftId;
+    }
+
+    public String getAircraftCode() {
+        return aircraftCode;
+    }
+
+    public void setAircraftCode(String aircraftCode) {
+        this.aircraftCode = aircraftCode;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
+    public int getTotalSeats() {
+        return totalSeats;
+    }
+
+    public void setTotalSeats(int totalSeats) {
+        this.totalSeats = totalSeats;
+    }
+
+    public int getAirlineId() {
+        return airlineId;
+    }
+
+    public void setAirlineId(int airlineId) {
+        this.airlineId = airlineId;
+    }
+    
+    @Override
+    public String toString() {
+        return model + " (" + aircraftCode + ")";
+    }
+}
+
+/**
+ * Flight entity class
+ */
+public class Flight {
+    private int flightId;
+    private String flightNumber;
+    private int airlineId;
+    private int aircraftId;
+    private int departureAirportId;
+    private int arrivalAirportId;
+    private LocalDateTime departureTime;
+    private LocalDateTime arrivalTime;
+    private BigDecimal basePrice;
+    private String status;
+    
+    // Transient properties for display
+    private String airlineName;
+    private String departureAirportCode;
+    private String arrivalAirportCode;
+    
+    // Constructor
+    public Flight() {}
+    
+    public Flight(String flightNumber, int airlineId, int aircraftId, 
+                int departureAirportId, int arrivalAirportId,
+                LocalDateTime departureTime, LocalDateTime arrivalTime, 
+                BigDecimal basePrice) {
+        this.flightNumber = flightNumber;
+        this.airlineId = airlineId;
+        this.aircraftId = aircraftId;
+        this.departureAirportId = departureAirportId;
+        this.arrivalAirportId = arrivalAirportId;
+        this.departureTime = departureTime;
+        this.arrivalTime = arrivalTime;
+        this.basePrice = basePrice;
+        this.status = "Scheduled";
+    }
+    
+    // Getters and setters
+    public int getFlightId() {
+        return flightId;
+    }
+
+    public void setFlightId(int flightId) {
+        this.flightId = flightId;
+    }
+
+    public String getFlightNumber() {
+        return flightNumber;
+    }
+
+    public void setFlightNumber(String flightNumber) {
+        this.flightNumber = flightNumber;
+    }
+
+    public int getAirlineId() {
+        return airlineId;
+    }
+
+    public void setAirlineId(int airlineId) {
+        this.airlineId = airlineId;
+    }
+
+    public int getAircraftId() {
+        return aircraftId;
+    }
+
+    public void setAircraftId(int aircraftId) {
+        this.aircraftId = aircraftId;
+    }
+
+    public int getDepartureAirportId() {
+        return departureAirportId;
+    }
+
+    public void setDepartureAirportId(int departureAirportId) {
+        this.departureAirportId = departureAirportId;
+    }
+
+    public int getArrivalAirportId() {
+        return arrivalAirportId;
+    }
+
+    public void setArrivalAirportId(int arrivalAirportId) {
+        this.arrivalAirportId = arrivalAirportId;
+    }
+
+    public LocalDateTime getDepartureTime() {
+        return departureTime;
+    }
+
+    public void setDepartureTime(LocalDateTime departureTime) {
+        this.departureTime = departureTime;
+    }
+
+    public LocalDateTime getArrivalTime() {
+        return arrivalTime;
+    }
+
+    public void setArrivalTime(LocalDateTime arrivalTime) {
+        this.arrivalTime = arrivalTime;
+    }
+
+    public BigDecimal getBasePrice() {
+        return basePrice;
+    }
+
+    public void setBasePrice(BigDecimal basePrice) {
+        this.basePrice = basePrice;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public String getAirlineName() {
+        return airlineName;
+    }
+
+    public void setAirlineName(String airlineName) {
+        this.airlineName = airlineName;
+    }
+
+    public String getDepartureAirportCode() {
+        return departureAirportCode;
+    }
+
+    public void setDepartureAirportCode(String departureAirportCode) {
+        this.departureAirportCode = departureAirportCode;
+    }
+
+    public String getArrivalAirportCode() {
+        return arrivalAirportCode;
+    }
+
+    public void setArrivalAirportCode(String arrivalAirportCode) {
+        this.arrivalAirportCode = arrivalAirportCode;
+    }
+    
+    @Override
+    public String toString() {
+        return flightNumber + " | " +
+               departureAirportCode + " → " + arrivalAirportCode + " | " +
+               departureTime + " - " + arrivalTime;
+    }
+}
+
+/**
+ * TravelClass entity class
+ */
+public class TravelClass {
+    private int classId;
+    private String className;
+    private BigDecimal priceMultiplier;
+    
+    // Constructor
+    public TravelClass() {}
+    
+    public TravelClass(String className, BigDecimal priceMultiplier) {
+        this.className = className;
+        this.priceMultiplier = priceMultiplier;
+    }
+    
+    // Getters and setters
+    public int getClassId() {
+        return classId;
+    }
+
+    public void setClassId(int classId) {
+        this.classId = classId;
+    }
+
+    public String getClassName() {
+        return className;
+    }
+
+    public void setClassName(String className) {
+        this.className = className;
+    }
+
+    public BigDecimal getPriceMultiplier() {
+        return priceMultiplier;
+    }
+
+    public void setPriceMultiplier(BigDecimal priceMultiplier) {
+        this.priceMultiplier = priceMultiplier;
+    }
+    
+    @Override
+    public String toString() {
+        return className;
+    }
+}
+
+/**
+ * Booking entity class
+ */
+public class Booking {
+    private int bookingId;
+    private String bookingReference;
+    private int passengerId;
+    private int flightId;
+    private int classId;
+    private String seatNumber;
+    private Timestamp bookingDate;
+    private String bookingStatus;
+    private BigDecimal totalAmount;
+    
+    // Transient properties for display
+    private String passengerName;
+    private String flightNumber;
+    private String className;
+    
+    // Constructor
+    public Booking() {}
+    
+    public Booking(int passengerId, int flightId, int classId, BigDecimal totalAmount) {
+        this.passengerId = passengerId;
+        this.flightId = flightId;
+        this.classId = classId;
+        this.totalAmount = totalAmount;
+        this.bookingStatus = "Reserved";
+        // Booking reference will be generated when saving to database
+    }
+    
+    // Getters and setters
+    public int getBookingId() {
+        return bookingId;
+    }
+
+    public void setBookingId(int bookingId) {
+        this.bookingId = bookingId;
+    }
+
+    public String getBookingReference() {
+        return bookingReference;
+    }
+
+    public void setBookingReference(String bookingReference) {
+        this.bookingReference = bookingReference;
+    }
+
+    public int getPassengerId() {
+        return passengerId;
+    }
+
+    public void setPassengerId(int passengerId) {
+        this.passengerId = passengerId;
+    }
+
+    public int getFlightId() {
+        return flightId;
+    }
+
+    public void setFlightId(int flightId) {
+        this.flightId = flightId;
+    }
+
+    public int getClassId() {
+        return classId;
+    }
+
+    public void setClassId(int classId) {
+        this.classId = classId;
+    }
+
+    public String getSeatNumber() {
+        return seatNumber;
+    }
+
+    public void setSeatNumber(String seatNumber) {
+        this.seatNumber = seatNumber;
+    }
+
+    public Timestamp getBookingDate() {
+        return bookingDate;
+    }
+
+    public void setBookingDate(Timestamp bookingDate) {
+        this.bookingDate = bookingDate;
+    }
+
+    public String getBookingStatus() {
+        return bookingStatus;
+    }
+
+    public void setBookingStatus(String bookingStatus) {
+        this.bookingStatus = bookingStatus;
+    }
+
+    public BigDecimal getTotalAmount() {
+        return totalAmount;
+    }
+
+    public void setTotalAmount(BigDecimal totalAmount) {
+        this.totalAmount = totalAmount;
+    }
+    
+    public String getPassengerName() {
+        return passengerName;
+    }
+
+    public void setPassengerName(String passengerName) {
+        this.passengerName = passengerName;
+    }
+
+    public String getFlightNumber() {
+        return flightNumber;
+    }
+
+    public void setFlightNumber(String flightNumber) {
+        this.flightNumber = flightNumber;
+    }
+
+    public String getClassName() {
+        return className;
+    }
+
+    public void setClassName(String className) {
+        this.className = className;
+    }
+    
+    @Override
+    public String toString() {
+        return bookingReference + " | " + passengerName + " | " + 
+               flightNumber + " | " + className + " | " + bookingStatus;
+    }
+}
+
+/**
+ * Transaction entity class
+ */
+public class Transaction {
+    private int transactionId;
+    private int bookingId;
+    private BigDecimal amount;
+    private String paymentMethod;
+    private String transactionStatus;
+    private Timestamp transactionDate;
+    private String referenceNumber;
+    
+    // Transient properties for display
+    private String bookingReference;
+    private String passengerName;
+    
+    // Constructor
+    public Transaction() {}
+    
+    public Transaction(int bookingId, BigDecimal amount, String paymentMethod) {
+        this.bookingId = bookingId;
+        this.amount = amount;
+        this.paymentMethod = paymentMethod;
+        this.transactionStatus = "Pending";
+    }
+    
+    // Getters and setters
+    public int getTransactionId() {
+        return transactionId;
+    }
+
+    public void setTransactionId(int transactionId) {
+        this.transactionId = transactionId;
+    }
+
+    public int getBookingId() {
+        return bookingId;
+    }
+
+    public void setBookingId(int bookingId) {
+        this.bookingId = bookingId;
+    }
+
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void setAmount(BigDecimal amount) {
+        this.amount = amount;
+    }
+
+    public String getPaymentMethod() {
+        return paymentMethod;
+    }
+
+    public void setPaymentMethod(String paymentMethod) {
+        this.paymentMethod = paymentMethod;
+    }
+
+    public String getTransactionStatus() {
+        return transactionStatus;
+    }
+
+    public void setTransactionStatus(String transactionStatus) {
+        this.transactionStatus = transactionStatus;
+    }
+
+    public Timestamp getTransactionDate() {
+        return transactionDate;
+    }
+
+    public void setTransactionDate(Timestamp transactionDate) {
+        this.transactionDate = transactionDate;
+    }
+
+    public String getReferenceNumber() {
+        return referenceNumber;
+    }
+
+    public void setReferenceNumber(String referenceNumber) {
+        this.referenceNumber = referenceNumber;
+    }
+    
+    public String getBookingReference() {
+        return bookingReference;
+    }
+
+    public void setBookingReference(String bookingReference) {
+        this.bookingReference = bookingReference;
+    }
+
+    public String getPassengerName() {
+        return passengerName;
+    }
+
+    public void setPassengerName(String passengerName) {
+        this.passengerName = passengerName;
+    }
+    
+    @Override
+    public String toString() {
+        return transactionId + " | " + bookingReference + " | " +
+               amount + " | " + transactionStatus + " | " + transactionDate;
+    }
+}
+
+/**
+ * User entity class
+ */
+public class User {
+    private int userId;
+    private String username;
+    private String passwordHash;
+    private String role;
+    private boolean isActive;
+    private Timestamp lastLogin;
+    private Timestamp createdAt;
+    
+    // Constructor
+    public User() {}
+    
+    public User(String username, String passwordHash, String role) {
+        this.username = username;
+        this.passwordHash = passwordHash;
+        this.role = role;
+        this.isActive = true;
+    }
+    
+    // Getters and setters
+    public int getUserId() {
+        return userId;
+    }
+
+    public void setUserId(int userId) {
+        this.userId = userId;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    public void setPasswordHash(String passwordHash) {
+        this.passwordHash = passwordHash;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        isActive = active;
+    }
+
+    public Timestamp getLastLogin() {
+        return lastLogin;
+    }
+
+    public void setLastLogin(Timestamp lastLogin) {
+        this.lastLogin = lastLogin;
+    }
+
+    public Timestamp getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Timestamp createdAt) {
+        this.createdAt = createdAt;
+    }
+    
+    @Override
+    public String toString() {
+        return username + " (" + role + ")";
+    }
+}
+
+package com.flightbooking.dao;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Generic DAO interface for CRUD operations
+ * @param <T> Entity type
+ * @param <ID> Primary key type
+ */
+public interface Dao<T, ID> {
+    
+    /**
+     * Save entity to database
+     * @param entity Entity to save
+     * @return Saved entity with generated ID
+     */
+    T save(T entity);
+    
+    /**
+     * Update existing entity
+     * @param entity Entity to update
+     * @return Updated entity
+     */
+    T update(T entity);
+    
+    /**
+     * Find entity by ID
+     * @param id Entity ID
+     * @return Optional containing entity if found
+     */
+    Optional<T> findById(ID id);
+    
+    /**
+     * Find all entities
+     * @return List of all entities
+     */
+    List<T> findAll();
+    
+    /**
+     * Delete entity by ID
+     * @param id Entity ID
+     * @return true if deletion was successful
+     */
+    boolean deleteById(ID id);
+}
+
+
+package com.flightbooking.dao;
+
+import com.flightbooking.model.Passenger;
+import com.flightbooking.util.DatabaseConnection;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Data Access Object for Passenger entity
+ */
+public class PassengerDAO implements Dao<Passenger, Integer> {
+
+    /**
+     * Save a new passenger to the database
+     * @param passenger Passenger to save
+     * @return Passenger with generated ID
+     */
+    @Override
+    public Passenger save(Passenger passenger) {
+        String sql = "INSERT INTO Passengers (first_name, last_name, date_of_birth, gender, " +
+                     "passport_number, nationality, email, phone_number, address) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            
+            pstmt.setString(1, passenger.getFirstName());
+            pstmt.setString(2, passenger.getLastName());
+            pstmt.setDate(3, java.sql.Date.valueOf(passenger.getDateOfBirth()));
+            pstmt.setString(4, String.valueOf(passenger.getGender()));
+            pstmt.setString(5, passenger.getPassportNumber());
+            pstmt.setString(6, passenger.getNationality());
+            pstmt.setString(7, passenger.getEmail());
+            pstmt.setString(8, passenger.getPhoneNumber());
+            pstmt.setString(9, passenger.getAddress());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Creating passenger failed, no rows affected.");
+            }
+            
+            rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                passenger.setPassengerId(rs.getInt(1));
+            } else {
+                throw new SQLException("Creating passenger failed, no ID obtained.");
+            }
+            
+            return passenger;
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving passenger: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Update an existing passenger
+     * @param passenger Passenger to update
+     * @return Updated passenger
+     */
+    @Override
+    public Passenger update(Passenger passenger) {
+        String sql = "UPDATE Passengers SET first_name = ?, last_name = ?, date_of_birth = ?, " +
+                     "gender = ?, passport_number = ?, nationality = ?, email = ?, " +
+                     "phone_number = ?, address = ? WHERE passenger_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            
+            pstmt.setString(1, passenger.getFirstName());
+            pstmt.setString(2, passenger.getLastName());
+            pstmt.setDate(3, java.sql.Date.valueOf(passenger.getDateOfBirth()));
+            pstmt.setString(4, String.valueOf(passenger.getGender()));
+            pstmt.setString(5, passenger.getPassportNumber());
+            pstmt.setString(6, passenger.getNationality());
+            pstmt.setString(7, passenger.getEmail());
+            pstmt.setString(8, passenger.getPhoneNumber());
+            pstmt.setString(9, passenger.getAddress());
+            pstmt.setInt(10, passenger.getPassengerId());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Updating passenger failed, no rows affected.");
+            }
+            
+            return passenger;
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating passenger: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Find a passenger by ID
+     * @param id Passenger ID
+     * @return Optional containing passenger if found
+     */
+    @Override
+    public Optional<Passenger> findById(Integer id) {
+        String sql = "SELECT * FROM Passengers WHERE passenger_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                Passenger passenger = new Passenger();
+                passenger.setPassengerId(rs.getInt("passenger_id"));
+                passenger.setFirstName(rs.getString("first_name"));
+                passenger.setLastName(rs.getString("last_name"));
+                passenger.setDateOfBirth(rs.getDate("date_of_birth").toLocalDate());
+                passenger.setGender(rs.getString("gender").charAt(0));
+                passenger.setPassportNumber(rs.getString("passport_number"));
+                passenger.setNationality(rs.getString("nationality"));
+                passenger.setEmail(rs.getString("email"));
+                passenger.setPhoneNumber(rs.getString("phone_number"));
+                passenger.setAddress(rs.getString("address"));
+                passenger.setCreatedAt(rs.getTimestamp("created_at"));
+                passenger.setUpdatedAt(rs.getTimestamp("updated_at"));
+                
+                return Optional.of(passenger);
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding passenger: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find passenger by email
+     * @param email Passenger email
+     * @return Optional containing passenger if found
+     */
+    public Optional<Passenger> findByEmail(String email) {
+        String sql = "SELECT * FROM Passengers WHERE email = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setString(1, email);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                Passenger passenger = new Passenger();
+                passenger.setPassengerId(rs.getInt("passenger_id"));
+                passenger.setFirstName(rs.getString("first_name"));
+                passenger.setLastName(rs.getString("last_name"));
+                passenger.setDateOfBirth(rs.getDate("date_of_birth").toLocalDate());
+                passenger.setGender(rs.getString("gender").charAt(0));
+                passenger.setPassportNumber(rs.getString("passport_number"));
+                passenger.setNationality(rs.getString("nationality"));
+                passenger.setEmail(rs.getString("email"));
+                passenger.setPhoneNumber(rs.getString("phone_number"));
+                passenger.setAddress(rs.getString("address"));
+                passenger.setCreatedAt(rs.getTimestamp("created_at"));
+                passenger.setUpdatedAt(rs.getTimestamp("updated_at"));
+                
+                return Optional.of(passenger);
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding passenger by email: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find all passengers
+     * @return List of all passengers
+     */
+    @Override
+    public List<Passenger> findAll() {
+        String sql = "SELECT * FROM Passengers";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<Passenger> passengers = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                Passenger passenger = new Passenger();
+                passenger.setPassengerId(rs.getInt("passenger_id"));
+                passenger.setFirstName(rs.getString("first_name"));
+                passenger.setLastName(rs.getString("last_name"));
+                passenger.setDateOfBirth(rs.getDate("date_of_birth").toLocalDate());
+                passenger.setGender(rs.getString("gender").charAt(0));
+                passenger.setPassportNumber(rs.getString("passport_number"));
+                passenger.setNationality(rs.getString("nationality"));
+                passenger.setEmail(rs.getString("email"));
+                passenger.setPhoneNumber(rs.getString("phone_number"));
+                passenger.setAddress(rs.getString("address"));
+                passenger.setCreatedAt(rs.getTimestamp("created_at"));
+                passenger.setUpdatedAt(rs.getTimestamp("updated_at"));
+                
+                passengers.add(passenger);
+            }
+            
+            return passengers;
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding all passengers: " + e.getMessage());
+            return passengers;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Delete a passenger by ID
+     * @param id Passenger ID
+     * @return true if deletion was successful
+     */
+    @Override
+    public boolean deleteById(Integer id) {
+        String sql = "DELETE FROM Passengers WHERE passenger_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            return affectedRows > 0;
+            
+        } catch (SQLException e) {
+            System.err.println("Error deleting passenger: " + e.getMessage());
+            return false;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+}
+
+package com.flightbooking.dao;
+
+import com.flightbooking.model.Flight;
+import com.flightbooking.util.DatabaseConnection;
+
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Data Access Object for Flight entity
+ */
+public class FlightDAO implements Dao<Flight, Integer> {
+
+    /**
+     * Save a new flight to the database
+     * @param flight Flight to save
+     * @return Flight with generated ID
+     */
+    @Override
+    public Flight save(Flight flight) {
+        String sql = "INSERT INTO Flights (flight_number, airline_id, aircraft_id, " +
+                     "departure_airport_id, arrival_airport_id, departure_time, " +
+                     "arrival_time, base_price, status) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            
+            pstmt.setString(1, flight.getFlightNumber());
+            pstmt.setInt(2, flight.getAirlineId());
+            pstmt.setInt(3, flight.getAircraftId());
+            pstmt.setInt(4, flight.getDepartureAirportId());
+            pstmt.setInt(5, flight.getArrivalAirportId());
+            pstmt.setTimestamp(6, Timestamp.valueOf(flight.getDepartureTime()));
+            pstmt.setTimestamp(7, Timestamp.valueOf(flight.getArrivalTime()));
+            pstmt.setBigDecimal(8, flight.getBasePrice());
+            pstmt.setString(9, flight.getStatus());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Creating flight failed, no rows affected.");
+            }
+            
+            rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                flight.setFlightId(rs.getInt(1));
+            } else {
+                throw new SQLException("Creating flight failed, no ID obtained.");
+            }
+            
+            return flight;
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving flight: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Update an existing flight
+     * @param flight Flight to update
+     * @return Updated flight
+     */
+    @Override
+    public Flight update(Flight flight) {
+        String sql = "UPDATE Flights SET flight_number = ?, airline_id = ?, aircraft_id = ?, " +
+                     "departure_airport_id = ?, arrival_airport_id = ?, departure_time = ?, " +
+                     "arrival_time = ?, base_price = ?, status = ? WHERE flight_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            
+            pstmt.setString(1, flight.getFlightNumber());
+            pstmt.setInt(2, flight.getAirlineId());
+            pstmt.setInt(3, flight.getAircraftId());
+            pstmt.setInt(4, flight.getDepartureAirportId());
+            pstmt.setInt(5, flight.getArrivalAirportId());
+            pstmt.setTimestamp(6, Timestamp.valueOf(flight.getDepartureTime()));
+            pstmt.setTimestamp(7, Timestamp.valueOf(flight.getArrivalTime()));
+            pstmt.setBigDecimal(8, flight.getBasePrice());
+            pstmt.setString(9, flight.getStatus());
+            pstmt.setInt(10, flight.getFlightId());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Updating flight failed, no rows affected.");
+            }
+            
+            return flight;
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating flight: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Find a flight by ID
+     * @param id Flight ID
+     * @return Optional containing flight if found
+     */
+    @Override
+    public Optional<Flight> findById(Integer id) {
+        String sql = "SELECT f.*, a1.airport_code as departure_code, a2.airport_code as arrival_code, " +
+                     "al.airline_name FROM Flights f " +
+                     "JOIN Airports a1 ON f.departure_airport_id = a1.airport_id " +
+                     "JOIN Airports a2 ON f.arrival_airport_id = a2.airport_id " +
+                     "JOIN Airlines al ON f.airline_id = al.airline_id " +
+                     "WHERE f.flight_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return Optional.of(mapResultSetToFlight(rs));
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding flight: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find all flights
+     * @return List of all flights
+     */
+    @Override
+    public List<Flight> findAll() {
+        String sql = "SELECT f.*, a1.airport_code as departure_code, a2.airport_code as arrival_code, " +
+                     "al.airline_name FROM Flights f " +
+                     "JOIN Airports a1 ON f.departure_airport_id = a1.airport_id " +
+                     "JOIN Airports a2 ON f.arrival_airport_id = a2.airport_id " +
+                     "JOIN Airlines al ON f.airline_id = al.airline_id";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<Flight> flights = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                flights.add(mapResultSetToFlight(rs));
+            }
+            
+            return flights;
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding all flights: " + e.getMessage());
+            return flights;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Delete a flight by ID
+     * @param id Flight ID
+     * @return true if deletion was successful
+     */
+    @Override
+    public boolean deleteById(Integer id) {
+        String sql = "DELETE FROM Flights WHERE flight_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            return affectedRows > 0;
+            
+        } catch (SQLException e) {
+            System.err.println("Error deleting flight: " + e.getMessage());
+            return false;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Search flights by departure and arrival airports and date
+     * @param departureAirportId Departure airport ID
+     * @param arrivalAirportId Arrival airport ID
+     * @param departureDate Departure date
+     * @return List of matching flights
+     */
+    public List<Flight> searchFlights(int departureAirportId, int arrivalAirportId, LocalDateTime departureDate) {
+        String sql = "SELECT f.*, a1.airport_code as departure_code, a2.airport_code as arrival_code, " +
+                     "al.airline_name FROM Flights f " +
+                     "JOIN Airports a1 ON f.departure_airport_id = a1.airport_id " +
+                     "JOIN Airports a2 ON f.arrival_airport_id = a2.airport_id " +
+                     "JOIN Airlines al ON f.airline_id = al.airline_id " +
+                     "WHERE f.departure_airport_id = ? AND f.arrival_airport_id = ? " +
+                     "AND DATE(f.departure_time) = ? AND f.status = 'Scheduled'";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<Flight> flights = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, departureAirportId);
+            pstmt.setInt(2, arrivalAirportId);
+            pstmt.setDate(3, java.sql.Date.valueOf(departureDate.toLocalDate()));
+            
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                flights.add(mapResultSetToFlight(rs));
+            }
+            
+            return flights;
+            
+        } catch (SQLException e) {
+            System.err.println("Error searching flights: " + e.getMessage());
+            return flights;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Map ResultSet to Flight object
+     * @param rs ResultSet containing flight data
+     * @return Flight object
+     * @throws SQLException if database access error occurs
+     */
+    private Flight mapResultSetToFlight(ResultSet rs) throws SQLException {
+        Flight flight = new Flight();
+        flight.setFlightId(rs.getInt("flight_id"));
+        flight.setFlightNumber(rs.getString("flight_number"));
+        flight.setAirlineId(rs.getInt("airline_id"));
+        flight.setAircraftId(rs.getInt("aircraft_id"));
+        flight.setDepartureAirportId(rs.getInt("departure_airport_id"));
+        flight.setArrivalAirportId(rs.getInt("arrival_airport_id"));
+        flight.setDepartureTime(rs.getTimestamp("departure_time").toLocalDateTime());
+        flight.setArrivalTime(rs.getTimestamp("arrival_time").toLocalDateTime());
+        flight.setBasePrice(rs.getBigDecimal("base_price"));
+        flight.setStatus(rs.getString("status"));
+        
+        // Set transient properties for display
+        flight.setDepartureAirportCode(rs.getString("departure_code"));
+        flight.setArrivalAirportCode(rs.getString("arrival_code"));
+        flight.setAirlineName(rs.getString("airline_name"));
+        
+        return flight;
+    }
+}
+
+BookingService.java:
+package com.flightbooking.service;
+
+import com.flightbooking.dao.BookingDAO;
+import com.flightbooking.dao.FlightDAO;
+import com.flightbooking.dao.PassengerDAO;
+import com.flightbooking.dao.TravelClassDAO;
+import com.flightbooking.dao.TransactionDAO;
+import com.flightbooking.model.Booking;
+import com.flightbooking.model.Flight;
+import com.flightbooking.model.Passenger;
+import com.flightbooking.model.TravelClass;
+import com.flightbooking.model.Transaction;
+import com.flightbooking.util.BookingReferenceGenerator;
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+
+/**
+ * Service class for handling booking-related business logic
+ */
+public class BookingService {
+    private final BookingDAO bookingDAO;
+    private final FlightDAO flightDAO;
+    private final PassengerDAO passengerDAO;
+    private final TravelClassDAO travelClassDAO;
+    private final TransactionDAO transactionDAO;
+    
+    /**
+     * Constructor for BookingService
+     */
+    public BookingService() {
+        this.bookingDAO = new BookingDAO();
+        this.flightDAO = new FlightDAO();
+        this.passengerDAO = new PassengerDAO();
+        this.travelClassDAO = new TravelClassDAO();
+        this.transactionDAO = new TransactionDAO();
+    }
+    
+    /**
+     * Create a new booking
+     * @param passengerId Passenger ID
+     * @param flightId Flight ID
+     * @param classId Travel class ID
+     * @return Created booking or null if creation failed
+     */
+    public Booking createBooking(int passengerId, int flightId, int classId) {
+        // Check if passenger exists
+        Optional<Passenger> passengerOpt = passengerDAO.findById(passengerId);
+        if (!passengerOpt.isPresent()) {
+            System.err.println("Passenger not found with ID: " + passengerId);
+            return null;
+        }
+        
+        // Check if flight exists
+        Optional<Flight> flightOpt = flightDAO.findById(flightId);
+        if (!flightOpt.isPresent()) {
+            System.err.println("Flight not found with ID: " + flightId);
+            return null;
+        }
+        
+        // Check if travel class exists
+        Optional<TravelClass> classOpt = travelClassDAO.findById(classId);
+        if (!classOpt.isPresent()) {
+            System.err.println("Travel class not found with ID: " + classId);
+            return null;
+        }
+        
+        Flight flight = flightOpt.get();
+        TravelClass travelClass = classOpt.get();
+        
+        // Calculate total amount
+        BigDecimal totalAmount = calculateTicketPrice(flight.getBasePrice(), travelClass.getPriceMultiplier());
+        
+        // Create booking
+        Booking booking = new Booking(passengerId, flightId, classId, totalAmount);
+        
+        // Generate unique booking reference
+        booking.setBookingReference(generateBookingReference());
+        
+        // Set booking date
+        booking.setBookingDate(Timestamp.valueOf(LocalDateTime.now()));
+        
+        // Save booking to database
+        Booking savedBooking = bookingDAO.save(booking);
+        
+        // Set display properties
+        if (savedBooking != null) {
+            savedBooking.setPassengerName(passengerOpt.get().getFullName());
+            savedBooking.setFlightNumber(flight.getFlightNumber());
+            savedBooking.setClassName(travelClass.getClassName());
+        }
+        
+        return savedBooking;
+    }
+    
+    /**
+     * Find booking by ID
+     * @param bookingId Booking ID
+     * @return Optional containing booking if found
+     */
+    public Optional<Booking> findBookingById(int bookingId) {
+        return bookingDAO.findById(bookingId);
+    }
+    
+    /**
+     * Find booking by reference
+     * @param reference Booking reference
+     * @return Optional containing booking if found
+     */
+    public Optional<Booking> findBookingByReference(String reference) {
+        return bookingDAO.findByReference(reference);
+    }
+    
+    /**
+     * Find bookings by passenger ID
+     * @param passengerId Passenger ID
+     * @return List of bookings for the passenger
+     */
+    public List<Booking> findBookingsByPassenger(int passengerId) {
+        return bookingDAO.findByPassengerId(passengerId);
+    }
+    
+    /**
+     * Update booking status
+     * @param bookingId Booking ID
+     * @param newStatus New status
+     * @return Updated booking or null if update failed
+     */
+    public Booking updateBookingStatus(int bookingId, String newStatus) {
+        Optional<Booking> bookingOpt = bookingDAO.findById(bookingId);
+        if (!bookingOpt.isPresent()) {
+            System.err.println("Booking not found with ID: " + bookingId);
+            return null;
+        }
+        
+        Booking booking = bookingOpt.get();
+        booking.setBookingStatus(newStatus);
+        
+        return bookingDAO.update(booking);
+    }
+    
+    /**
+     * Confirm booking after payment
+     * @param bookingId Booking ID
+     * @param paymentMethod Payment method
+     * @param amount Payment amount
+     * @return true if confirmation was successful
+     */
+    public boolean confirmBooking(int bookingId, String paymentMethod, BigDecimal amount) {
+        // Update booking status
+        Booking updatedBooking = updateBookingStatus(bookingId, "Confirmed");
+        if (updatedBooking == null) {
+            return false;
+        }
+        
+        // Create transaction record
+        Transaction transaction = new Transaction(bookingId, amount, paymentMethod);
+        transaction.setTransactionStatus("Completed");
+        transaction.setReferenceNumber(generateTransactionReference());
+        transaction.setTransactionDate(Timestamp.valueOf(LocalDateTime.now()));
+        
+        Transaction savedTransaction = transactionDAO.save(transaction);
+        
+        return savedTransaction != null;
+    }
+    
+    /**
+     * Cancel booking
+     * @param bookingId Booking ID
+     * @return true if cancellation was successful
+     */
+    public boolean cancelBooking(int bookingId) {
+        Booking updatedBooking = updateBookingStatus(bookingId, "Cancelled");
+        return updatedBooking != null;
+    }
+    
+    /**
+     * Check-in for a flight
+     * @param bookingId Booking ID
+     * @param seatNumber Selected seat number
+     * @return true if check-in was successful
+     */
+    public boolean checkIn(int bookingId, String seatNumber) {
+        Optional<Booking> bookingOpt = bookingDAO.findById(bookingId);
+        if (!bookingOpt.isPresent()) {
+            System.err.println("Booking not found with ID: " + bookingId);
+            return false;
+        }
+        
+        // Check if seat is available
+        if (!isValidSeat(bookingOpt.get().getFlightId(), seatNumber)) {
+            System.err.println("Seat " + seatNumber + " is not available");
+            return false;
+        }
+        
+        Booking booking = bookingOpt.get();
+        booking.setBookingStatus("Checked-in");
+        booking.setSeatNumber(seatNumber);
+        
+        Booking updatedBooking = bookingDAO.update(booking);
+        return updatedBooking != null;
+    }
+    
+    /**
+     * Check if a seat is available
+     * @param flightId Flight ID
+     * @param seatNumber Seat number
+     * @return true if seat is available
+     */
+    private boolean isValidSeat(int flightId, String seatNumber) {
+        // In a real application, we would check against a seat map
+        // For simplicity, we'll assume the seat is valid if it follows a pattern
+        if (seatNumber == null || seatNumber.isEmpty()) {
+            return false;
+        }
+        
+        // Check if seat follows pattern like "A1", "B12", etc.
+        return seatNumber.matches("[A-Z][0-9]{1,2}");
+    }
+    
+    /**
+     * Calculate ticket price based on base price and class multiplier
+     * @param basePrice Base price
+     * @param classMultiplier Class price multiplier
+     * @return Total price
+     */
+    private BigDecimal calculateTicketPrice(BigDecimal basePrice, BigDecimal classMultiplier) {
+        return basePrice.multiply(classMultiplier);
+    }
+    
+    /**
+     * Generate unique booking reference
+     * @return Booking reference
+     */
+    private String generateBookingReference() {
+        // In a real application, we would ensure this is unique
+        // For simplicity, we'll generate a random 6-character alphanumeric string
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(6);
+        Random random = new Random();
+        
+        for (int i = 0; i < 6; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        
+        return sb.toString();
+    }
+    
+    /**
+     * Generate unique transaction reference
+     * @return Transaction reference
+     */
+    private String generateTransactionReference() {
+        // In a real application, we would ensure this is unique
+        // For simplicity, we'll generate a random 10-character alphanumeric string
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(10);
+        Random random = new Random();
+        
+        for (int i = 0; i < 10; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        
+        return "TX" + sb.toString();
+    }
+}
+
+package com.flightbooking.dao;
+
+import com.flightbooking.model.Booking;
+import com.flightbooking.util.DatabaseConnection;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Data Access Object for Booking entity
+ */
+public class BookingDAO implements Dao<Booking, Integer> {
+
+    /**
+     * Save a new booking to the database
+     * @param booking Booking to save
+     * @return Booking with generated ID
+     */
+    @Override
+    public Booking save(Booking booking) {
+        String sql = "INSERT INTO Bookings (booking_reference, passenger_id, flight_id, class_id, " +
+                     "seat_number, booking_date, booking_status, total_amount) " +
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            
+            pstmt.setString(1, booking.getBookingReference());
+            pstmt.setInt(2, booking.getPassengerId());
+            pstmt.setInt(3, booking.getFlightId());
+            pstmt.setInt(4, booking.getClassId());
+            pstmt.setString(5, booking.getSeatNumber());
+            pstmt.setTimestamp(6, booking.getBookingDate());
+            pstmt.setString(7, booking.getBookingStatus());
+            pstmt.setBigDecimal(8, booking.getTotalAmount());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Creating booking failed, no rows affected.");
+            }
+            
+            rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                booking.setBookingId(rs.getInt(1));
+            } else {
+                throw new SQLException("Creating booking failed, no ID obtained.");
+            }
+            
+            return booking;
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving booking: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Update an existing booking
+     * @param booking Booking to update
+     * @return Updated booking
+     */
+    @Override
+    public Booking update(Booking booking) {
+        String sql = "UPDATE Bookings SET booking_reference = ?, passenger_id = ?, flight_id = ?, " +
+                     "class_id = ?, seat_number = ?, booking_date = ?, booking_status = ?, " +
+                     "total_amount = ? WHERE booking_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            
+            pstmt.setString(1, booking.getBookingReference());
+            pstmt.setInt(2, booking.getPassengerId());
+            pstmt.setInt(3, booking.getFlightId());
+            pstmt.setInt(4, booking.getClassId());
+            pstmt.setString(5, booking.getSeatNumber());
+            pstmt.setTimestamp(6, booking.getBookingDate());
+            pstmt.setString(7, booking.getBookingStatus());
+            pstmt.setBigDecimal(8, booking.getTotalAmount());
+            pstmt.setInt(9, booking.getBookingId());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Updating booking failed, no rows affected.");
+            }
+            
+            return booking;
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating booking: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Find a booking by ID
+     * @param id Booking ID
+     * @return Optional containing booking if found
+     */
+    @Override
+    public Optional<Booking> findById(Integer id) {
+        String sql = "SELECT b.*, p.first_name, p.last_name, f.flight_number, tc.class_name " +
+                     "FROM Bookings b " +
+                     "JOIN Passengers p ON b.passenger_id = p.passenger_id " +
+                     "JOIN Flights f ON b.flight_id = f.flight_id " +
+                     "JOIN TravelClasses tc ON b.class_id = tc.class_id " +
+                     "WHERE b.booking_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return Optional.of(mapResultSetToBooking(rs));
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding booking: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find booking by reference
+     * @param reference Booking reference
+     * @return Optional containing booking if found
+     */
+    public Optional<Booking> findByReference(String reference) {
+        String sql = "SELECT b.*, p.first_name, p.last_name, f.flight_number, tc.class_name " +
+                     "FROM Bookings b " +
+                     "JOIN Passengers p ON b.passenger_id = p.passenger_id " +
+                     "JOIN Flights f ON b.flight_id = f.flight_id " +
+                     "JOIN TravelClasses tc ON b.class_id = tc.class_id " +
+                     "WHERE b.booking_reference = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setString(1, reference);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                return Optional.of(mapResultSetToBooking(rs));
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding booking by reference: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find bookings by passenger ID
+     * @param passengerId Passenger ID
+     * @return List of bookings for the passenger
+     */
+    public List<Booking> findByPassengerId(int passengerId) {
+        String sql = "SELECT b.*, p.first_name, p.last_name, f.flight_number, tc.class_name " +
+                     "FROM Bookings b " +
+                     "JOIN Passengers p ON b.passenger_id = p.passenger_id " +
+                     "JOIN Flights f ON b.flight_id = f.flight_id " +
+                     "JOIN TravelClasses tc ON b.class_id = tc.class_id " +
+                     "WHERE b.passenger_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<Booking> bookings = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, passengerId);
+            
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                bookings.add(mapResultSetToBooking(rs));
+            }
+            
+            return bookings;
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding bookings by passenger ID: " + e.getMessage());
+            return bookings;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find all bookings
+     * @return List of all bookings
+     */
+    @Override
+    public List<Booking> findAll() {
+        String sql = "SELECT b.*, p.first_name, p.last_name, f.flight_number, tc.class_name " +
+                     "FROM Bookings b " +
+                     "JOIN Passengers p ON b.passenger_id = p.passenger_id " +
+                     "JOIN Flights f ON b.flight_id = f.flight_id " +
+                     "JOIN TravelClasses tc ON b.class_id = tc.class_id";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<Booking> bookings = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                bookings.add(mapResultSetToBooking(rs));
+            }
+            
+            return bookings;
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding all bookings: " + e.getMessage());
+            return bookings;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Delete a booking by ID
+     * @param id Booking ID
+     * @return true if deletion was successful
+     */
+    @Override
+    public boolean deleteById(Integer id) {
+        String sql = "DELETE FROM Bookings WHERE booking_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            return affectedRows > 0;
+            
+        } catch (SQLException e) {
+            System.err.println("Error deleting booking: " + e.getMessage());
+            return false;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Map ResultSet to Booking object
+     * @param rs ResultSet containing booking data
+     * @return Booking object
+     * @throws SQLException if database access error occurs
+     */
+    private Booking mapResultSetToBooking(ResultSet rs) throws SQLException {
+        Booking booking = new Booking();
+        booking.setBookingId(rs.getInt("booking_id"));
+        booking.setBookingReference(rs.getString("booking_reference"));
+        booking.setPassengerId(rs.getInt("passenger_id"));
+        booking.setFlightId(rs.getInt("flight_id"));
+        booking.setClassId(rs.getInt("class_id"));
+        booking.setSeatNumber(rs.getString("seat_number"));
+        booking.setBookingDate(rs.getTimestamp("booking_date"));
+        booking.setBookingStatus(rs.getString("booking_status"));
+        booking.setTotalAmount(rs.getBigDecimal("total_amount"));
+        
+        // Set transient properties for display
+        booking.setPassengerName(rs.getString("first_name") + " " + rs.getString("last_name"));
+        booking.setFlightNumber(rs.getString("flight_number"));
+        booking.setClassName(rs.getString("class_name"));
+        
+        return booking;
+    }
+}
+
+package com.flightbooking.dao;
+
+import com.flightbooking.model.TravelClass;
+import com.flightbooking.util.DatabaseConnection;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Data Access Object for TravelClass entity
+ */
+public class TravelClassDAO implements Dao<TravelClass, Integer> {
+
+    /**
+     * Save a new travel class to the database
+     * @param travelClass TravelClass to save
+     * @return TravelClass with generated ID
+     */
+    @Override
+    public TravelClass save(TravelClass travelClass) {
+        String sql = "INSERT INTO TravelClasses (class_name, price_multiplier) VALUES (?, ?)";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+            
+            pstmt.setString(1, travelClass.getClassName());
+            pstmt.setBigDecimal(2, travelClass.getPriceMultiplier());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Creating travel class failed, no rows affected.");
+            }
+            
+            rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                travelClass.setClassId(rs.getInt(1));
+            } else {
+                throw new SQLException("Creating travel class failed, no ID obtained.");
+            }
+            
+            return travelClass;
+            
+        } catch (SQLException e) {
+            System.err.println("Error saving travel class: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Update an existing travel class
+     * @param travelClass TravelClass to update
+     * @return Updated travel class
+     */
+    @Override
+    public TravelClass update(TravelClass travelClass) {
+        String sql = "UPDATE TravelClasses SET class_name = ?, price_multiplier = ? WHERE class_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            
+            pstmt.setString(1, travelClass.getClassName());
+            pstmt.setBigDecimal(2, travelClass.getPriceMultiplier());
+            pstmt.setInt(3, travelClass.getClassId());
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            if (affectedRows == 0) {
+                throw new SQLException("Updating travel class failed, no rows affected.");
+            }
+            
+            return travelClass;
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating travel class: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Find a travel class by ID
+     * @param id TravelClass ID
+     * @return Optional containing travel class if found
+     */
+    @Override
+    public Optional<TravelClass> findById(Integer id) {
+        String sql = "SELECT * FROM TravelClasses WHERE class_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            rs = pstmt.executeQuery();
+            
+            if (rs.next()) {
+                TravelClass travelClass = new TravelClass();
+                travelClass.setClassId(rs.getInt("class_id"));
+                travelClass.setClassName(rs.getString("class_name"));
+                travelClass.setPriceMultiplier(rs.getBigDecimal("price_multiplier"));
+                
+                return Optional.of(travelClass);
+            }
+            
+            return Optional.empty();
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding travel class: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find all travel classes
+     * @return List of all travel classes
+     */
+    @Override
+    public List<TravelClass> findAll() {
+        String sql = "SELECT * FROM TravelClasses";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<TravelClass> travelClasses = new ArrayList<>();
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            rs = pstmt.executeQuery();
+            
+            while (rs.next()) {
+                TravelClass travelClass = new TravelClass();
+                travelClass.setClassId(rs.getInt("class_id"));
+                travelClass.setClassName(rs.getString("class_name"));
+                travelClass.setPriceMultiplier(rs.getBigDecimal("price_multiplier"));
+                
+                travelClasses.add(travelClass);
+            }
+            
+            return travelClasses;
+            
+        } catch (SQLException e) {
+            System.err.println("Error finding all travel classes: " + e.getMessage());
+            return travelClasses;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Delete a travel class by ID
+     * @param id TravelClass ID
+     * @return true if deletion was successful
+     */
+    @Override
+    public boolean deleteById(Integer id) {
+        String sql = "DELETE FROM TravelClasses WHERE class_id = ?";
+        
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+            
+            int affectedRows = pstmt.executeUpdate();
+            
+            return affectedRows > 0;
+            
+        } catch (SQLException e) {
+            System.err.println("Error deleting travel class: " + e.getMessage());
+            return false;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+}
