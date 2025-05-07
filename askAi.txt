@@ -1,0 +1,843 @@
+we are making a simple flight booking system in pure java netbeans connected to Microsoft MySQL studio, and here is what we have done so far:
+our DB:
+```USE flight_booking_system;
+
+-- Passengers table
+CREATE TABLE Passengers (
+    passenger_id INT IDENTITY(1,1) PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    date_of_birth DATE NOT NULL,
+    gender CHAR(1) CHECK (gender IN ('M', 'F')),
+    passport_number VARCHAR(20) UNIQUE,
+    nationality VARCHAR(50),
+    email VARCHAR(100) NOT NULL UNIQUE,
+    phone_number VARCHAR(20) NOT NULL,
+    address VARCHAR(255),
+    created_at DATETIME DEFAULT GETDATE(),
+    updated_at DATETIME DEFAULT GETDATE()
+);
+
+-- Airports table
+CREATE TABLE Airports (
+    airport_id INT IDENTITY(1,1) PRIMARY KEY,
+    airport_code VARCHAR(3) UNIQUE NOT NULL,
+    airport_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50) NOT NULL,
+    country VARCHAR(50) NOT NULL,
+    is_active BIT DEFAULT 1
+);
+
+-- Airlines table
+CREATE TABLE Airlines (
+    airline_id INT IDENTITY(1,1) PRIMARY KEY,
+    airline_code VARCHAR(3) UNIQUE NOT NULL,
+    airline_name VARCHAR(100) NOT NULL,
+    is_active BIT DEFAULT 1
+);
+
+-- Aircraft table
+CREATE TABLE Aircraft (
+    aircraft_id INT IDENTITY(1,1) PRIMARY KEY,
+    aircraft_code VARCHAR(10) NOT NULL,
+    model VARCHAR(50) NOT NULL,
+    total_seats INT NOT NULL,
+    airline_id INT,
+    FOREIGN KEY (airline_id) REFERENCES Airlines(airline_id)
+);
+
+-- Flights table
+CREATE TABLE Flights (
+    flight_id INT IDENTITY(1,1) PRIMARY KEY,
+    flight_number VARCHAR(10) NOT NULL,
+    airline_id INT NOT NULL,
+    aircraft_id INT NOT NULL,
+    departure_airport_id INT NOT NULL,
+    arrival_airport_id INT NOT NULL,
+    departure_time DATETIME NOT NULL,
+    arrival_time DATETIME NOT NULL,
+    base_price DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(20) DEFAULT 'Scheduled',
+    FOREIGN KEY (airline_id) REFERENCES Airlines(airline_id),
+    FOREIGN KEY (aircraft_id) REFERENCES Aircraft(aircraft_id),
+    FOREIGN KEY (departure_airport_id) REFERENCES Airports(airport_id),
+    FOREIGN KEY (arrival_airport_id) REFERENCES Airports(airport_id),
+    CHECK (departure_airport_id != arrival_airport_id),
+    CHECK (arrival_time > departure_time),
+    CHECK (status IN ('Scheduled', 'Delayed', 'Cancelled', 'Completed'))
+);
+
+-- Travel Classes table
+CREATE TABLE TravelClasses (
+    class_id INT IDENTITY(1,1) PRIMARY KEY,
+    class_name VARCHAR(20) NOT NULL,
+    price_multiplier DECIMAL(3, 2) DEFAULT 1.00
+);
+
+-- Insert default travel classes
+INSERT INTO TravelClasses (class_name, price_multiplier) VALUES 
+    ('Economy', 1.00),
+    ('Premium Economy', 1.30),
+    ('Business', 2.50),
+    ('First', 4.00);
+
+-- Seat Configurations table
+CREATE TABLE SeatConfigurations (
+    config_id INT IDENTITY(1,1) PRIMARY KEY,
+    aircraft_id INT NOT NULL,
+    class_id INT NOT NULL,
+    total_seats INT NOT NULL,
+    FOREIGN KEY (aircraft_id) REFERENCES Aircraft(aircraft_id),
+    FOREIGN KEY (class_id) REFERENCES TravelClasses(class_id)
+);
+
+-- Bookings table
+CREATE TABLE Bookings (
+    booking_id INT IDENTITY(1,1) PRIMARY KEY,
+    booking_reference VARCHAR(10) UNIQUE NOT NULL,
+    passenger_id INT NOT NULL,
+    flight_id INT NOT NULL,
+    class_id INT NOT NULL,
+    seat_number VARCHAR(5),
+    booking_date DATETIME DEFAULT GETDATE(),
+    booking_status VARCHAR(20) DEFAULT 'Reserved',
+    total_amount DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (passenger_id) REFERENCES Passengers(passenger_id),
+    FOREIGN KEY (flight_id) REFERENCES Flights(flight_id),
+    FOREIGN KEY (class_id) REFERENCES TravelClasses(class_id),
+    CHECK (booking_status IN ('Reserved', 'Confirmed', 'Cancelled', 'Checked-in', 'Completed'))
+);
+
+-- Transactions table
+CREATE TABLE Transactions (
+    transaction_id INT IDENTITY(1,1) PRIMARY KEY,
+    booking_id INT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    payment_method VARCHAR(20) NOT NULL,
+    transaction_status VARCHAR(20) DEFAULT 'Pending',
+    transaction_date DATETIME DEFAULT GETDATE(),
+    reference_number VARCHAR(50) UNIQUE,
+    FOREIGN KEY (booking_id) REFERENCES Bookings(booking_id),
+    CHECK (payment_method IN ('Credit Card', 'Debit Card', 'PayPal', 'Bank Transfer')),
+    CHECK (transaction_status IN ('Pending', 'Completed', 'Failed', 'Refunded'))
+);
+
+-- Users table for system access
+CREATE TABLE Users (
+    user_id INT IDENTITY(1,1) PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL,
+    is_active BIT DEFAULT 1,
+    last_login DATETIME,
+    created_at DATETIME DEFAULT GETDATE(),
+    CHECK (role IN ('Admin', 'Staff', 'Customer'))
+);
+
+-- Create indexes for better performance
+CREATE INDEX idx_flights_departure ON Flights(departure_time);
+CREATE INDEX idx_flights_airports ON Flights(departure_airport_id, arrival_airport_id);
+CREATE INDEX idx_bookings_flight ON Bookings(flight_id);
+CREATE INDEX idx_bookings_passenger ON Bookings(passenger_id);
+CREATE INDEX idx_transactions_booking ON Transactions(booking_id);
+```
+our classes:
+
+DatabaseConnection.java:
+```
+package com.mycompany.bookingsystem;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+public class DatabaseConnection {
+
+    public static Connection getConnection() throws ClassNotFoundException, SQLException {
+        // Database connection details
+        String hostname = "localhost";
+        String sqlInstanceName = "Habeeb\\SQLEXPRESS"; //computer name 
+        String sqlDatabase = "flight_booking_system";  //sql server database name
+        String sqlUser = "sa";
+        String sqlPassword = "1234"; //passwrod sa account
+        // Load the SQL Server JDBC driver
+        try {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        } catch (ClassNotFoundException e) {
+            Logger.getLogger(DatabaseConnection.class.getName()).log(Level.SEVERE, null, e);
+            throw e; // Rethrow exception if driver is not found
+        }
+
+        // Connection string for SQL Server
+        String connectURL = "jdbc:sqlserver://" + hostname + ":1433" + ";instance=" + sqlInstanceName + ";databaseName=" + sqlDatabase + ";encrypt=false";
+
+        // Return the connection object
+        try {
+            Connection conn = DriverManager.getConnection(connectURL, sqlUser, sqlPassword);
+            System.out.println("Connected to the database successfully!");
+            return conn;  // Return the connection object
+        } catch (SQLException ex) {
+            Logger.getLogger(DatabaseConnection.class.getName()).log(Level.SEVERE, null, ex);
+            throw new SQLException("Unable to establish a connection to the database", ex);
+        }
+    }
+
+    public static void main(String[] args) throws ClassNotFoundException, SQLException {
+
+        Connection conn = null;
+        try {
+            conn = getConnection();
+        } catch (SQLException ex) {
+            Logger.getLogger(DatabaseConnection.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+        conn.close();
+    }
+
+    /**
+     * Close the given connection quietly
+     *
+     * @param conn Connection to close
+     */
+    public static void closeQuietly(Connection conn) {
+        if (conn != null) {
+            try {
+                conn.close();
+            } catch (SQLException e) {
+                System.err.println("Error closing connection: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Close the given AutoCloseable resources quietly
+     *
+     * @param resources Resources to close
+     */
+    public static void closeQuietly(AutoCloseable... resources) {
+        for (AutoCloseable resource : resources) {
+            if (resource != null) {
+                try {
+                    resource.close();
+                } catch (Exception e) {
+                    System.err.println("Error closing resource: " + e.getMessage());
+                }
+            }
+        }
+    }
+}
+```
+Passenger, Airport, Airline, Aircraft, Flight, TravelClass, Booking, Transaction, User, these are our main classes, here is a sample code that is inside of them:
+Airport.java:
+```
+package com.mycompany.bookingsystem;
+
+public class Airport {
+
+    private int airportId;
+    private String airportCode;
+    private String airportName;
+    private String city;
+    private String country;
+    private boolean isActive;
+
+    public Airport() {
+    }
+
+    public Airport(String airportCode, String airportName, String city, String country) {
+        this.airportCode = airportCode;
+        this.airportName = airportName;
+        this.city = city;
+        this.country = country;
+        this.isActive = true;
+    }
+
+    // Getters and setters
+    public int getAirportId() {
+        return airportId;
+    }
+
+    public void setAirportId(int airportId) {
+        this.airportId = airportId;
+    }
+
+    public String getAirportCode() {
+        return airportCode;
+    }
+
+    public void setAirportCode(String airportCode) {
+        this.airportCode = airportCode;
+    }
+
+    public String getAirportName() {
+        return airportName;
+    }
+
+    public void setAirportName(String airportName) {
+        this.airportName = airportName;
+    }
+
+    public String getCity() {
+        return city;
+    }
+
+    public void setCity(String city) {
+        this.city = city;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public void setCountry(String country) {
+        this.country = country;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        isActive = active;
+    }
+
+    @Override
+    public String toString() {
+        return airportCode + " - " + airportName + " (" + city + ", " + country + ")";
+    }
+}
+```
+then we created an Dao.java interface for DB function:
+Dao.java:
+```
+package com.mycompany.bookingsystem;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Generic DAO interface for CRUD operations
+ *
+ * @param <T> Entity type
+ * @param <ID> Primary key type
+ */
+public interface Dao<T, ID> {
+
+    /**
+     * Save entity to database
+     *
+     * @param entity Entity to save
+     * @return Saved entity with generated ID
+     */
+    T save(T entity);
+
+    /**
+     * Update existing entity
+     *
+     * @param entity Entity to update
+     * @return Updated entity
+     */
+    T update(T entity);
+
+    /**
+     * Find entity by ID
+     *
+     * @param id Entity ID
+     * @return Optional containing entity if found
+     */
+    Optional<T> findById(ID id);
+
+    /**
+     * Find all entities
+     *
+     * @return List of all entities
+     */
+    List<T> findAll();
+
+    /**
+     * Delete entity by ID
+     *
+     * @param id Entity ID
+     * @return true if deletion was successful
+     */
+    boolean deleteById(ID id);
+}
+```
+
+then from this interface, we created these files:
+PassengerDAO, AirportDAO, AirlineDAO, AircraftDAO, FlightDAO, TravelClassDAO, BookingDAO, TransactionDAO, UserDAO sample code implementation:
+TravelClassDAO.java:
+```
+package com.mycompany.bookingsystem;
+
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Data Access Object for TravelClass entity
+ */
+public class TravelClassDAO implements Dao<TravelClass, Integer> {
+
+    /**
+     * Save a new travel class to the database
+     *
+     * @param travelClass TravelClass to save
+     * @return TravelClass with generated ID
+     */
+    @Override
+    public TravelClass save(TravelClass travelClass) {
+        String sql = "INSERT INTO TravelClasses (class_name, price_multiplier) VALUES (?, ?)";
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);
+
+            pstmt.setString(1, travelClass.getClassName());
+            pstmt.setBigDecimal(2, travelClass.getPriceMultiplier());
+
+            int affectedRows = pstmt.executeUpdate();
+
+            if (affectedRows == 0) {
+                throw new SQLException("Creating travel class failed, no rows affected.");
+            }
+
+            rs = pstmt.getGeneratedKeys();
+            if (rs.next()) {
+                travelClass.setClassId(rs.getInt(1));
+            } else {
+                throw new SQLException("Creating travel class failed, no ID obtained.");
+            }
+
+            return travelClass;
+
+        } catch (SQLException | ClassNotFoundException e) {
+            System.err.println("Error saving travel class: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Update an existing travel class
+     *
+     * @param travelClass TravelClass to update
+     * @return Updated travel class
+     */
+    @Override
+    public TravelClass update(TravelClass travelClass) {
+        String sql = "UPDATE TravelClasses SET class_name = ?, price_multiplier = ? WHERE class_id = ?";
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+
+            pstmt.setString(1, travelClass.getClassName());
+            pstmt.setBigDecimal(2, travelClass.getPriceMultiplier());
+            pstmt.setInt(3, travelClass.getClassId());
+
+            int affectedRows = pstmt.executeUpdate();
+
+            if (affectedRows == 0) {
+                throw new SQLException("Updating travel class failed, no rows affected.");
+            }
+
+            return travelClass;
+
+        } catch (SQLException | ClassNotFoundException e) {
+            System.err.println("Error updating travel class: " + e.getMessage());
+            return null;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+
+    /**
+     * Find a travel class by ID
+     *
+     * @param id TravelClass ID
+     * @return Optional containing travel class if found
+     */
+    @Override
+    public Optional<TravelClass> findById(Integer id) {
+        String sql = "SELECT * FROM TravelClasses WHERE class_id = ?";
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+
+            rs = pstmt.executeQuery();
+
+            if (rs.next()) {
+                TravelClass travelClass = new TravelClass();
+                travelClass.setClassId(rs.getInt("class_id"));
+                travelClass.setClassName(rs.getString("class_name"));
+                travelClass.setPriceMultiplier(rs.getBigDecimal("price_multiplier"));
+
+                return Optional.of(travelClass);
+            }
+
+            return Optional.empty();
+
+        } catch (SQLException | ClassNotFoundException e) {
+            System.err.println("Error finding travel class: " + e.getMessage());
+            return Optional.empty();
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Find all travel classes
+     *
+     * @return List of all travel classes
+     */
+    @Override
+    public List<TravelClass> findAll() {
+        String sql = "SELECT * FROM TravelClasses";
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+        ResultSet rs = null;
+        List<TravelClass> travelClasses = new ArrayList<>();
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                TravelClass travelClass = new TravelClass();
+                travelClass.setClassId(rs.getInt("class_id"));
+                travelClass.setClassName(rs.getString("class_name"));
+                travelClass.setPriceMultiplier(rs.getBigDecimal("price_multiplier"));
+
+                travelClasses.add(travelClass);
+            }
+
+            return travelClasses;
+
+        } catch (SQLException | ClassNotFoundException e) {
+            System.err.println("Error finding all travel classes: " + e.getMessage());
+            return travelClasses;
+        } finally {
+            DatabaseConnection.closeQuietly(rs, pstmt, conn);
+        }
+    }
+
+    /**
+     * Delete a travel class by ID
+     *
+     * @param id TravelClass ID
+     * @return true if deletion was successful
+     */
+    @Override
+    public boolean deleteById(Integer id) {
+        String sql = "DELETE FROM TravelClasses WHERE class_id = ?";
+
+        Connection conn = null;
+        PreparedStatement pstmt = null;
+
+        try {
+            conn = DatabaseConnection.getConnection();
+            pstmt = conn.prepareStatement(sql);
+            pstmt.setInt(1, id);
+
+            int affectedRows = pstmt.executeUpdate();
+
+            return affectedRows > 0;
+
+        } catch (SQLException | ClassNotFoundException e) {
+            System.err.println("Error deleting travel class: " + e.getMessage());
+            return false;
+        } finally {
+            DatabaseConnection.closeQuietly(pstmt, conn);
+        }
+    }
+}
+```
+
+can you help us to continue implementing the missing classes for Dao, and what should we do next? 
+we tried to make this servis:
+BookingService.java:
+```
+package com.mycompany.bookingsystem;
+
+
+import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Random;
+
+/**
+ * Service class for handling booking-related business logic
+ */
+public class BookingService {
+    private final BookingDAO bookingDAO;
+    private final FlightDAO flightDAO;
+    private final PassengerDAO passengerDAO;
+    private final TravelClassDAO travelClassDAO;
+    private final TransactionDAO transactionDAO;
+    
+    /**
+     * Constructor for BookingService
+     */
+    public BookingService() {
+        this.bookingDAO = new BookingDAO();
+        this.flightDAO = new FlightDAO();
+        this.passengerDAO = new PassengerDAO();
+        this.travelClassDAO = new TravelClassDAO();
+        this.transactionDAO = new TransactionDAO();
+    }
+    
+    /**
+     * Create a new booking
+     * @param passengerId Passenger ID
+     * @param flightId Flight ID
+     * @param classId Travel class ID
+     * @return Created booking or null if creation failed
+     */
+    public Booking createBooking(int passengerId, int flightId, int classId) {
+        // Check if passenger exists
+        Optional<Passenger> passengerOpt = passengerDAO.findById(passengerId);
+        if (!passengerOpt.isPresent()) {
+            System.err.println("Passenger not found with ID: " + passengerId);
+            return null;
+        }
+        
+        // Check if flight exists
+        Optional<Flight> flightOpt = flightDAO.findById(flightId);
+        if (!flightOpt.isPresent()) {
+            System.err.println("Flight not found with ID: " + flightId);
+            return null;
+        }
+        
+        // Check if travel class exists
+        Optional<TravelClass> classOpt = travelClassDAO.findById(classId);
+        if (!classOpt.isPresent()) {
+            System.err.println("Travel class not found with ID: " + classId);
+            return null;
+        }
+        
+        Flight flight = flightOpt.get();
+        TravelClass travelClass = classOpt.get();
+        
+        // Calculate total amount
+        BigDecimal totalAmount = calculateTicketPrice(flight.getBasePrice(), travelClass.getPriceMultiplier());
+        
+        // Create booking
+        Booking booking = new Booking(passengerId, flightId, classId, totalAmount);
+        
+        // Generate unique booking reference
+        booking.setBookingReference(generateBookingReference());
+        
+        // Set booking date
+        booking.setBookingDate(Timestamp.valueOf(LocalDateTime.now()));
+        
+        // Save booking to database
+        Booking savedBooking = bookingDAO.save(booking);
+        
+        // Set display properties
+        if (savedBooking != null) {
+            savedBooking.setPassengerName(passengerOpt.get().getFullName());
+            savedBooking.setFlightNumber(flight.getFlightNumber());
+            savedBooking.setClassName(travelClass.getClassName());
+        }
+        
+        return savedBooking;
+    }
+    
+    /**
+     * Find booking by ID
+     * @param bookingId Booking ID
+     * @return Optional containing booking if found
+     */
+    public Optional<Booking> findBookingById(int bookingId) {
+        return bookingDAO.findById(bookingId);
+    }
+    
+    /**
+     * Find booking by reference
+     * @param reference Booking reference
+     * @return Optional containing booking if found
+     */
+    public Optional<Booking> findBookingByReference(String reference) {
+        return bookingDAO.findByReference(reference);
+    }
+    
+    /**
+     * Find bookings by passenger ID
+     * @param passengerId Passenger ID
+     * @return List of bookings for the passenger
+     */
+    public List<Booking> findBookingsByPassenger(int passengerId) {
+        return bookingDAO.findByPassengerId(passengerId);
+    }
+    
+    /**
+     * Update booking status
+     * @param bookingId Booking ID
+     * @param newStatus New status
+     * @return Updated booking or null if update failed
+     */
+    public Booking updateBookingStatus(int bookingId, String newStatus) {
+        Optional<Booking> bookingOpt = bookingDAO.findById(bookingId);
+        if (!bookingOpt.isPresent()) {
+            System.err.println("Booking not found with ID: " + bookingId);
+            return null;
+        }
+        
+        Booking booking = bookingOpt.get();
+        booking.setBookingStatus(newStatus);
+        
+        return bookingDAO.update(booking);
+    }
+    
+    /**
+     * Confirm booking after payment
+     * @param bookingId Booking ID
+     * @param paymentMethod Payment method
+     * @param amount Payment amount
+     * @return true if confirmation was successful
+     */
+    public boolean confirmBooking(int bookingId, String paymentMethod, BigDecimal amount) {
+        // Update booking status
+        Booking updatedBooking = updateBookingStatus(bookingId, "Confirmed");
+        if (updatedBooking == null) {
+            return false;
+        }
+        
+        // Create transaction record
+        Transaction transaction = new Transaction(bookingId, amount, paymentMethod);
+        transaction.setTransactionStatus("Completed");
+        transaction.setReferenceNumber(generateTransactionReference());
+        transaction.setTransactionDate(Timestamp.valueOf(LocalDateTime.now()));
+        
+        Transaction savedTransaction = transactionDAO.save(transaction);
+        
+        return savedTransaction != null;
+    }
+    
+    /**
+     * Cancel booking
+     * @param bookingId Booking ID
+     * @return true if cancellation was successful
+     */
+    public boolean cancelBooking(int bookingId) {
+        Booking updatedBooking = updateBookingStatus(bookingId, "Cancelled");
+        return updatedBooking != null;
+    }
+    
+    /**
+     * Check-in for a flight
+     * @param bookingId Booking ID
+     * @param seatNumber Selected seat number
+     * @return true if check-in was successful
+     */
+    public boolean checkIn(int bookingId, String seatNumber) {
+        Optional<Booking> bookingOpt = bookingDAO.findById(bookingId);
+        if (!bookingOpt.isPresent()) {
+            System.err.println("Booking not found with ID: " + bookingId);
+            return false;
+        }
+        
+        // Check if seat is available
+        if (!isValidSeat(bookingOpt.get().getFlightId(), seatNumber)) {
+            System.err.println("Seat " + seatNumber + " is not available");
+            return false;
+        }
+        
+        Booking booking = bookingOpt.get();
+        booking.setBookingStatus("Checked-in");
+        booking.setSeatNumber(seatNumber);
+        
+        Booking updatedBooking = bookingDAO.update(booking);
+        return updatedBooking != null;
+    }
+    
+    /**
+     * Check if a seat is available
+     * @param flightId Flight ID
+     * @param seatNumber Seat number
+     * @return true if seat is available
+     */
+    private boolean isValidSeat(int flightId, String seatNumber) {
+        // In a real application, we would check against a seat map
+        // For simplicity, we'll assume the seat is valid if it follows a pattern
+        if (seatNumber == null || seatNumber.isEmpty()) {
+            return false;
+        }
+        
+        // Check if seat follows pattern like "A1", "B12", etc.
+        return seatNumber.matches("[A-Z][0-9]{1,2}");
+    }
+    
+    /**
+     * Calculate ticket price based on base price and class multiplier
+     * @param basePrice Base price
+     * @param classMultiplier Class price multiplier
+     * @return Total price
+     */
+    private BigDecimal calculateTicketPrice(BigDecimal basePrice, BigDecimal classMultiplier) {
+        return basePrice.multiply(classMultiplier);
+    }
+    
+    /**
+     * Generate unique booking reference
+     * @return Booking reference
+     */
+    private String generateBookingReference() {
+        // In a real application, we would ensure this is unique
+        // For simplicity, we'll generate a random 6-character alphanumeric string
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(6);
+        Random random = new Random();
+        
+        for (int i = 0; i < 6; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        
+        return sb.toString();
+    }
+    
+    /**
+     * Generate unique transaction reference
+     * @return Transaction reference
+     */
+    private String generateTransactionReference() {
+        // In a real application, we would ensure this is unique
+        // For simplicity, we'll generate a random 10-character alphanumeric string
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        StringBuilder sb = new StringBuilder(10);
+        Random random = new Random();
+        
+        for (int i = 0; i < 10; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        
+        return "TX" + sb.toString();
+    }
+}
+```
+
+
+can you help us to continue our project by adding the remaining service classes?
